@@ -6,14 +6,28 @@ from mininet.util import dumpNodeConnections
 from mininet.log import setLogLevel
 from mininet.cli import CLI
 from functools import partial
-from time import sleep
+from time import sleep, time_ns
+import random
+import threading
+
+NUMBER_OF_SWITCHES = 6
+NUMBER_OF_HOSTS = 8
+
+MIN_DURATION = 3
+MAX_DURATION = 10
+
+MIN_BURST = 10
+MAX_BURST = 1000
+
+MIN_INTERVAL = 0.1
+MAX_INTERVAL = 1.0
+
+NUMBER_OF_SERVERS = 9
 
 class CustomMininetTopo(Topo):
     "Single switch connected to n hosts."
     def build( self ):
         "Create custom topo."
-        NUMBER_OF_SWITCHES = 6
-        NUMBER_OF_HOSTS = 8
 
         switchesNames = [f"s{num+1}" for num in range(NUMBER_OF_SWITCHES)]
         hostNames = [f"h{num+1}" for num in range(NUMBER_OF_HOSTS)]
@@ -25,21 +39,21 @@ class CustomMininetTopo(Topo):
         host = lambda name: hosts[hostNames.index(name)]
 
         
-        self.addLink(switch("s1"), switch("s2"), port1=1, port2=1, bw=50)
-        self.addLink(switch("s2"), switch("s3"), port1=2, port2=2, bw=50)
-        self.addLink(switch("s3"), switch("s4"), port1=1, port2=1, bw=50)
-        self.addLink(switch("s4"), switch("s1"), port1=2, port2=2, bw=50)
-        self.addLink(switch("s5"), switch("s2"), port1=1 ,port2=3, bw=50)
-        self.addLink(switch("s6"), switch("s4"), port1=1 ,port2=3, bw=50)
+        self.addLink(switch("s1"), switch("s2"), port1=1, port2=1, bw=2)
+        self.addLink(switch("s2"), switch("s3"), port1=2, port2=2, bw=2)
+        self.addLink(switch("s3"), switch("s4"), port1=1, port2=1, bw=2)
+        self.addLink(switch("s4"), switch("s1"), port1=2, port2=2, bw=2)
+        self.addLink(switch("s5"), switch("s2"), port1=1 ,port2=3, bw=2)
+        self.addLink(switch("s6"), switch("s4"), port1=1 ,port2=3, bw=2)
   
-        self.addLink(switch("s1"), host("h1"), port1=3 ,port2=1, bw=50)
-        self.addLink(switch("s1"), host("h2"), port1=4 ,port2=1, bw=50)
-        self.addLink(switch("s3"), host("h3"), port1=3 ,port2=1, bw=50)
-        self.addLink(switch("s3"), host("h4"), port1=4 ,port2=1, bw=50)
-        self.addLink(switch("s5"), host("h5"), port1=2 ,port2=1, bw=50)
-        self.addLink(switch("s5"), host("h6"), port1=3 ,port2=1, bw=50)
-        self.addLink(switch("s6"), host("h7"), port1=2 ,port2=1, bw=50)
-        self.addLink(switch("s6"), host("h8"), port1=3 ,port2=1, bw=50)
+        self.addLink(switch("s1"), host("h1"), port1=3 ,port2=1, bw=2)
+        self.addLink(switch("s1"), host("h2"), port1=4 ,port2=1, bw=2)
+        self.addLink(switch("s3"), host("h3"), port1=3 ,port2=1, bw=2)
+        self.addLink(switch("s3"), host("h4"), port1=4 ,port2=1, bw=2)
+        self.addLink(switch("s5"), host("h5"), port1=2 ,port2=1, bw=2)
+        self.addLink(switch("s5"), host("h6"), port1=3 ,port2=1, bw=2)
+        self.addLink(switch("s6"), host("h7"), port1=2 ,port2=1, bw=2)
+        self.addLink(switch("s6"), host("h8"), port1=3 ,port2=1, bw=2)
         
 
 
@@ -72,21 +86,41 @@ def networkSetup():
     net.start()
     dumpNodeConnections(net.hosts)
     net.pingAll()
-    # print("Start iperf server")
-    # net.hosts[3].cmd("iperf3 -s -p 3001 & \n")
-    # net.hosts[3].cmd("iperf3 -s -p 3002 & \n")
-    # net.hosts[3].cmd("iperf3 -s -p 3003 & \n")
-    # sleep(3)
-    # print("Start clients")
-    # net.hosts[0].cmd("iperf3 -c 10.0.0.4 -p 3001 -t 1260 -i 1 --logfile ./flows_Scenario1/h1s1new.txt & \n")
-    # net.hosts[1].cmd("iperf3 -c 10.0.0.4 -p 3002 -t 1260 -i 1 --logfile ./flows_Scenario1/h2s1new.txt & \n")
-    # net.hosts[2].cmd("iperf3 -c 10.0.0.4 -p 3003 -t 1260 -i 1 --logfile ./flows_Scenario1/h3s1new.txt & \n")
-    #sleep()
-    #input()
-    #networkTest2(net)
+    generate_random_traffic(net)
+    CLI()
 
-    CLI(net)
     net.stop()
+
+def run_iperf_servers(net):
+    """Run Iperf servers on hosts 1 to 4"""
+    for i in range(1, 5):
+        for j in range (1, 10):
+            host = net.get(f'h{i}')
+            host.cmd(f'iperf3 -s -i 1 -p {i}00{j} &')
+        print(f'Iperf server started on h{i}')
+
+def run_iperf_client(client, server):
+    """Run Iperf clients on hosts 5 to 8"""
+    duration = random.randint(MIN_DURATION, MAX_DURATION)
+    burst_size = random.randint(MIN_BURST, MAX_BURST)
+    interval = random.uniform(MIN_INTERVAL, MAX_INTERVAL)
+    port_nr = random.randint(1, NUMBER_OF_SERVERS)
+    timestamp = time_ns()
+    print(f'iperf3 -c {server.IP()} -t {duration} -b {burst_size}K -i {interval} -p {server.name[1]}00{port_nr} -u --logfile iperf_{client.name}_to_{server.name}_{timestamp}.log &')
+    client.cmd(f'iperf3 -c {server.IP()} -t {duration} -b {burst_size}K -i {interval} -p {server.name[1]}00{port_nr} -u --logfile iperf_{client.name}_to_{server.name}_{timestamp}.log &')
+
+def generate_random_traffic(net):
+
+    src_hosts = net.hosts[4:]
+    dst_hosts = net.hosts[:4]
+    run_iperf_servers(net)
+    while True:
+        client = random.choice(src_hosts)
+        server = random.choice(dst_hosts)
+        run_iperf_client(client, server)
+        sleep(2)
+
+
 
 
 if __name__ == '__main__':
