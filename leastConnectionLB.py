@@ -5,28 +5,19 @@ import pox.openflow.libopenflow_01 as of
 from collections import defaultdict
 from pox.lib.util import str_to_dpid, dpid_to_str
 from pox.lib.revent import Event, EventMixin
+from time import sleep
+import threading
+import inspect
 
 log = core.getLogger()
 
 ZERO_DPID = "00-00-00-00-00-0"
+MAC_ZERO = "00:00:00:00:00:0"
 
 class RequestPathEvent(Event):
         def __init__(self, dpid1, dpid2):
             Event.__init__(self)
             self.path_endpoints = (dpid1, dpid2)
-
-
-# class LBEvents(EventMixin):
-
-#     _eventMixin_events = set([RequestPathEvent])
-
-#     def __init__(self):
-#         EventMixin.__init__(self)
-
-#     def _request_Path(self, dpid1, dpid2):
-#             log.debug("Raising requestPathEvent")
-#             self.raiseEvent(RequestPathEvent(dpid1, dpid2))
-
 
 class LeastConnectionLB(EventMixin):
     _eventMixin_events = set([RequestPathEvent])  # Register events
@@ -34,24 +25,20 @@ class LeastConnectionLB(EventMixin):
     def __init__(self):
         # Initialize EventMixin first
         EventMixin.__init__(self)
-        log.info("Starting Least Connection Load Balancer")
+        #log.info("Starting Least Connection Load Balancer")
         self._core_name = 'misc_lclb'
         # Server pool configuration
-        self.server_pool = [
-            {'ip': IPAddr('10.0.0.1'), 'mac': EthAddr('00:00:00:00:00:01')},  # H5
-            {'ip': IPAddr('10.0.0.2'), 'mac': EthAddr('00:00:00:00:00:02')},  # H6
-            {'ip': IPAddr('10.0.0.3'), 'mac': EthAddr('00:00:00:00:00:03')},  # H7
-            {'ip': IPAddr('10.0.0.4'), 'mac': EthAddr('00:00:00:00:00:04')}   # H8
-        ]
+        self.server_pool = {IPAddr(f'10.0.0.{i}'):0 for i in range(1,5)} # server ip: connections count
+        self.server_pool_tmp = {IPAddr(f'10.0.0.{i}'):0 for i in range(1,5)}
         
         # Virtual service configuration
         self.virtual_ip = IPAddr('10.0.0.100')
         self.virtual_mac = EthAddr('0a:00:00:64:00:00')
-        
+        self.installed_paths = list()
         # Connection tracking
         self.connection_counts = defaultdict(int)  # Active connections per server
         self.paths = {}  # Store computed paths
-        
+        self.pass_or_not = True
         # Network topology mapping
         self.host_port_map = {
             IPAddr("10.0.0.1"): (str_to_dpid(ZERO_DPID+"1"), 3),
@@ -87,25 +74,39 @@ class LeastConnectionLB(EventMixin):
     
         self.connections = {}  # Dictionary to store switch connections
         core.openflow.addListeners(self)
+        self.flows = {IPAddr(f'10.0.0.{i}'):list() for i in range(1,5)}
+        # Hardcoded DPIDs (example values - replace with your actual DPIDs)
+        self.dpids = [1, 2, 3, 4]  # DPIDs as integers
+        # Dictionary to store connections
+        self.connections = {}
+        # Start the stats collection thread
+        self.running = True
+        self.stats_thread = threading.Thread(target=self._stats_loop)
+        self.stats_thread.daemon = True
+        self.stats_thread.start()
         
     def _handle_ConnectionUp(self, event):
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         """Store switch connection when it connects"""
         dpid = event.dpid
         self.connections[dpid] = event.connection
-        print(f"Switch {dpid_to_str(dpid)} connected")
+        #log.info(f"Switch {dpid_to_str(dpid)} connected")
         
     def _handle_ConnectionDown(self, event):
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         """Remove switch connection when it disconnects"""
         dpid = event.dpid
         if dpid in self.connections:
             del self.connections[dpid]
-            print(f"Switch {dpid_to_str(dpid)} disconnected")
+            #print(f"Switch {dpid_to_str(dpid)} disconnected")
             
     def get_switch_connection(self, dpid):
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         """Get connection to specific switch by DPID"""
         return self.connections.get(dpid)
         
     def send_message_to_switch(self, dpid, message):
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         """Send OpenFlow message to specific switch"""
         connection = self.get_switch_connection(dpid)
         if connection:
@@ -114,15 +115,15 @@ class LeastConnectionLB(EventMixin):
         return False
     
     def _handle_ResponsePathEvent(self, event):
-        log.info("ResponsePATH")
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         self.tmpPath = event.path
 
     def _request_Path(self, dpid1, dpid2):
-        log.debug("Raising requestPathEvent")
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         self.raiseEvent(RequestPathEvent(dpid1, dpid2))
 
     def _handle_SendLink(self, event):
-
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         if event.link.dpid1 not in self.paths:
             self.paths[event.link.dpid1] = {event.link.dpid2: event.link.port1}
         else:
@@ -133,21 +134,20 @@ class LeastConnectionLB(EventMixin):
         else:
             self.paths[event.link.dpid2][event.link.dpid1] = event.link.port2
 
-        #log.info(f"dpid1: {event.link.dpid1}, port1: {event.link.port1}, dpid2: {event.link.dpid2}, port2: {event.link.port2}")
+        ##log.info(f"dpid1: {event.link.dpid1}, port1: {event.link.port1}, dpid2: {event.link.dpid2}, port2: {event.link.port2}")
 
     def _handle_PacketIn(self, event):
+
         packet = event.parsed
         if not packet:
             return
 
-        in_port = event.port
-        connection = event.connection
         if packet.type == ethernet.ARP_TYPE:
             arp_packet = packet.payload
             
             if arp_packet.opcode == arp.REQUEST:
                 if arp_packet.protodst == self.virtual_ip:
-                    log.debug("Received ARP request for virtual IP")
+                    ##log.info("Received ARP request for virtual IP")
                     
                     # Create ARP reply
                     arp_reply = arp()
@@ -170,171 +170,269 @@ class LeastConnectionLB(EventMixin):
                     msg.actions.append(of.ofp_action_output(port = event.port))
                     event.connection.send(msg)
                     
-                    # log.info("Sent ARP reply: %s is at %s", self.virtual_ip, self.virtual_mac)
+                    ##log.info("Sent ARP reply: %s is at %s", self.virtual_ip, self.virtual_mac)
+                else:
+                    ethDst = EthAddr(MAC_ZERO+arp_packet.protodst.toStr()[-1])
+                    arp_reply = arp()
+                    arp_reply.hwsrc = ethDst        # MAC of real responder
+                    arp_reply.hwdst = arp_packet.hwsrc      # MAC of requester
+                    arp_reply.opcode = arp.REPLY
+                    arp_reply.protosrc = arp_packet.protodst # IP being requested
+                    arp_reply.protodst = arp_packet.protosrc # IP of requester
+                    
+                    # Create ethernet packet
+                    ether = ethernet()
+                    ether.type = ethernet.ARP_TYPE
+                    ether.dst = packet.src                   # Send to requester
+                    ether.src = ethDst                 # From responder
+                    ether.payload = arp_reply
+                    
+                    # Send packet out
+                    msg = of.ofp_packet_out()
+                    msg.data = ether.pack()
+                    msg.actions.append(of.ofp_action_output(port = event.port))
+                    event.connection.send(msg)
 
         # Process only IPv4 traffic
-        if packet.type == ethernet.IP_TYPE:
+        if packet.type == ethernet.IP_TYPE :
             ip_packet = packet.find('ipv4')
             #tcp_packet = packet.find('udp')
-            print("dupa1")
-            print(type(packet))
             if ip_packet:
                 # Handle traffic directed to the virtual IP
-                print("dupa2")
+                
+                #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
+                #log.info(event.connection)
+                #log.info(ip_packet)
                 if ip_packet.dstip == IPAddr('10.0.0.100'):
                     selected_server = self._select_server()
-                    print("dupa3")
-                    print(selected_server)
+                    
+                    #print(selected_server)
                     if selected_server:
-                        print("dupa4")
-                        self.connection_counts[selected_server['ip']] += 1
-                        self._redirect_to_server(
-                            event, ip_packet, selected_server, in_port
-                        )
-                    return
+                        #print("1")
+                        self._redirect_to_server(event, ip_packet, selected_server)
+                else:
+                    #print("2")
+                    self._redirect_to_client(event, ip_packet)
+                return
 
-                # Handle traffic from backend servers to clients
-                for server in self.server_pool:
-                    if ip_packet.srcip == server['ip']:
-                        print("duap5")
-                        self._redirect_to_client(event, ip_packet, server, in_port)
-                        return
 
         # Flood other packets
-        self._flood(event)
-
+        #self._flood(event)
+        return
 
     def _select_server(self):
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         """
         Select the backend server with the least active connections.
         """
-        return min(self.server_pool, key=lambda s: self.connection_counts[s['ip']])
+        #print("server pool")
+        #print(self.server_pool)
+        return min(self.server_pool, key=self.server_pool.get)
 
-    def _redirect_to_server(self, event, ip_packet, server, client_port):
+    def _redirect_to_server(self, event, ip_packet, server):
         """
         Modify packet headers and redirect to the selected backend server.
         """
-        DPID = "00-00-00-00-00-0"
+        #log.info("redirect to server")
 
         packet = event.parsed
-        connection = event.connection
+        connection_og = event.connection
 
-        print("Original packet: ")
-        print(ip_packet)
-        print("redirected: ")
-        print(server["ip"])
+        #print("Original packet: ")
+        #print(ip_packet)
+        #print("redirected: ")
+        #print(server)
 
         # Rewrite destination IP/MAC to server's IP/MAC
-        ip_packet.dstip = server['ip']
-        packet.dst = server['mac']
+        # ip_packet.dstip = server['ip']
+        # packet.dst = server['mac']
 
         dpid_client = self.host_port_map[ip_packet.srcip][0]
-        dpid_server = self.host_port_map[server["ip"]][0]
+        dpid_server = self.host_port_map[server][0]
 
         self._request_Path(dpid1=dpid_client, dpid2=dpid_server)
-        log.info("request path sent")
+        #log.info("request path sent")
 
         while self.tmpPath is None:
             pass
         
-        path_reversed = list(reversed(self.tmpPath))
-        print(path_reversed)
-        for dpid in path_reversed:
-            connection = self.get_switch_connection(str_to_dpid(DPID + f"{dpid}"))
-            if dpid == path_reversed[0]:
-                port_server = self.host_port_map[server["ip"]][1]
-                self._install_flow(connection, port_server, server['mac'], server['ip'], packet.src, ip_packet.srcip)
-                port_client = self.paths[dpid][path_reversed[path_reversed.index(dpid)+1]]
-                self._install_flow(connection, port_server, packet.src, ip_packet.srcip, server['mac'], server['ip'])
-                log.info(f"Install flow in {dpid}")
-            elif dpid == path_reversed[-1]:
-                port_server = self.paths[dpid][path_reversed[path_reversed.index(dpid)-1]]
-                self._install_flow_with_change(connection, port_server, server['mac'], server['ip'], packet.src, ip_packet.srcip)
-                port_client = self.host_port_map[ip_packet.srcip][1]
-                self._install_flow(connection, port_client, packet.src, ip_packet.srcip, server['mac'], server['ip'])
-                log.info(f"Install flow in {dpid}")
+
+        # if (ip_packet.srcip, server["ip"]) in self.installed_paths:
+        #     return
+        # else:
+        #     self.installed_paths.append((ip_packet.srcip, server["ip"]))
+
+        self.tmpPath.reverse()
+        for i, dpid in enumerate(self.tmpPath):
+            connection = self.get_switch_connection(str_to_dpid(ZERO_DPID + f"{dpid}"))
+            if dpid == self.tmpPath[0]:
+                port_server = self.host_port_map[server][1]
+                self._install_flow(connection, port_server, self._ip_to_mac(server), server, packet)
+                #log.info(f"Install flow in {dpid}:{port_server}")
+                
+            elif dpid == self.tmpPath[-1]:
+                port_server = self.paths[dpid][self.tmpPath[i-1]]
+                self._install_flow_with_change(connection, port_server, self._ip_to_mac(server), server, packet)
+                msg = of.ofp_packet_out(data=event.ofp)
+                msg.actions.append(of.ofp_action_output(port=port_server))
+                connection_og.send(msg)
+                #log.info(f"Install flow in {dpid}:{port_server}")
+                
             else:
-                port_server = self.paths[dpid][path_reversed[path_reversed.index(dpid)-1]]
-                self._install_flow(connection, port_server, server['mac'], server['ip'], packet.src, ip_packet.srcip)
-                port_client = self.paths[dpid][path_reversed[path_reversed.index(dpid)+1]]
-                self._install_flow(connection, port_client, packet.src, ip_packet.srcip, server['mac'], server['ip'])
-                log.info(f"Install flow in {dpid}")
+                port_server = self.paths[dpid][self.tmpPath[i-1]]
+                self._install_flow(connection, port_server, self._ip_to_mac(server), server, packet)
+                #log.info(f"Install flow in {dpid}:{port_server}")
+                
                 
         self.tmpPath = None
 
-        # Install a flow rule for client -> server
-        
-        # Send the packet to the server
-        # msg = of.ofp_packet_out(data=event.ofp)
-        # msg.actions.append(of.ofp_action_output(port=of.OFPP_TABLE))
-        # connection.send(msg)
 
-    def _redirect_to_client(self, event, ip_packet, server, server_port):
+    def _redirect_to_client(self, event, ip_packet):
         """
         Redirect traffic from backend servers to the client.
         """
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         packet = event.parsed
-        connection = event.connection
+        connection_og = event.connection
 
-        # Rewrite source IP/MAC to the virtual IP/MAC
-        ip_packet.srcip = self.virtual_ip
-        packet.src = self.virtual_mac
+        dpid_server = self.host_port_map[ip_packet.dstip][0]
+        dpid_client = self.host_port_map[ip_packet.srcip][0]
 
-        # Install a flow rule for server -> client
-        self._install_flow(connection, server_port, server['mac'], server['ip'], packet.dst, ip_packet.dstip)
-        
-        # Send the packet to the client
-        msg = of.ofp_packet_out(data=event.ofp)
-        msg.actions.append(of.ofp_action_output(port=of.OFPP_TABLE))
-        connection.send(msg)
+        self._request_Path(dpid1=dpid_client, dpid2=dpid_server)
+        #log.info("request path sent")
 
-    def _install_flow(self, connection, out_port, src_mac, src_ip, dst_mac, dst_ip):
-        """
-        Install a single flow entry that modifies addresses and forwards
-        """
+        while self.tmpPath is None:
+            pass
+
+        self.tmpPath.reverse()
+        for i, dpid in enumerate(self.tmpPath):
+            connection = self.get_switch_connection(str_to_dpid(ZERO_DPID + f"{dpid}"))
+            if dpid == self.tmpPath[-1]:
+                port_client = self.paths[dpid][self.tmpPath[i-1]]
+                self._install_flow(connection, port_client, packet.dst, ip_packet.dstip, packet)
+                msg = of.ofp_packet_out(data=event.ofp)
+                msg.actions.append(of.ofp_action_dl_addr.set_dst(packet.dst))
+                msg.actions.append(of.ofp_action_nw_addr.set_dst(ip_packet.dstip))
+                msg.actions.append(of.ofp_action_output(port=port_client))
+                connection_og.send(msg)
+                #log.info(f"Install flow in {dpid}:{port_client}")
+                
+            elif dpid == self.tmpPath[0]:
+                port_client = self.host_port_map[ip_packet.dstip][1]
+                self._install_flow_with_change(connection, port_client, packet.dst, ip_packet.dstip, packet, True)
+                #log.info(f"Install flow in {dpid}:{port_client}")
+                
+            else:
+                port_client = self.paths[dpid][self.tmpPath[i-1]]
+                self._install_flow(connection, port_client, packet.dst, ip_packet.dstip, packet)
+                #log.info(f"Install flow in {dpid}:{port_client}")
+                
+                
+        self.tmpPath = None
+
+
+
+    def _install_flow(self, connection, out_port, dst_mac, dst_ip, packet, src_ip=None, src_mac=None):
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         msg = of.ofp_flow_mod()
-        msg.match.dl_src = src_mac
+        msg.match = of.ofp_match.from_packet(packet)
         msg.match.dl_dst = dst_mac
-        msg.match.dl_type = 0x0800
-        msg.match.nw_src = src_ip
         msg.match.nw_dst = dst_ip
-        msg.idle_timeout = 30
-        
-        # First modify addresses, then forward
+        msg.match.nw_proto = None
+        msg.idle_timeout = 2
+        msg.hard_timeout = 5
+        #log.info(f"dst: {msg.match.nw_dst} src: {msg.match.nw_src}")
+        if not src_ip and src_mac:
+            msg.match.dl_src = src_mac
+            msg.match.nw_src = src_ip
+
         msg.actions.append(of.ofp_action_output(port=out_port))
         
         connection.send(msg)
-    
-    def _install_flow_with_change(self, connection, out_port, src_mac, src_ip, dst_mac, dst_ip):
+
+    def _install_flow_with_change(self, connection, out_port, dst_mac, dst_ip, packet, is_to_client=False):
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         """
         Install a single flow entry that modifies addresses and forwards
         """
+        #log.info("install flow change")
         msg = of.ofp_flow_mod()
-        msg.match.dl_src = src_mac
-        msg.match.dl_type = 0x0800
-        msg.match.nw_src = src_ip
-        msg.match.nw_dst = IPAddr("10.0.0.100")
-        msg.idle_timeout = 30
+        msg.match = of.ofp_match.from_packet(packet)
         
-        # First modify addresses, then forward
-        msg.actions.append(of.ofp_action_dl_addr.set_dst(dst_mac))
-        msg.actions.append(of.ofp_action_nw_addr.set_dst(dst_ip))
+        if is_to_client:
+            msg.actions.append(of.ofp_action_dl_addr.set_src(self.virtual_mac))
+            msg.actions.append(of.ofp_action_nw_addr.set_src(self.virtual_ip))
+        else:
+            msg.match.nw_dst = self.virtual_ip
+            msg.match.dl_dst = self.virtual_mac
+            msg.actions.append(of.ofp_action_dl_addr.set_dst(dst_mac))
+            msg.actions.append(of.ofp_action_nw_addr.set_dst(dst_ip))
         msg.actions.append(of.ofp_action_output(port=out_port))
-        
+        msg.match.nw_proto = None
+        msg.idle_timeout = 2
+        msg.hard_timeout = 5
+        #log.info(f"dst: {msg.match.nw_dst} src: {msg.match.nw_src}")
         connection.send(msg)
 
     def _flood(self, event):
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         """
         Flood packets as a fallback.
         """
         msg = of.ofp_packet_out(data=event.ofp)
-        msg.actions.append(of.ofp_action_output(port=of.OFPP_FLOOD))
+        msg.actions.append(of.ofp_action_output(port=of.OFPP_TABLE))
         event.connection.send(msg)
+    
+    def _request_flow_stats(self, connection):
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
+        # Construct flow stats request
+        if connection is not None:
+            #log.debug("Sending flow stats request to %s", dpid_to_str(connection.dpid))
+            request = of.ofp_stats_request()
+            request.type = of.OFPST_FLOW
+            request.body = of.ofp_flow_stats_request()
+            connection.send(request)
 
+    def _stats_loop(self):
+        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
+        """Thread function that periodically requests stats"""
+        while self.running:
+            print(self.server_pool)
+            self.server_pool= {IPAddr(f'10.0.0.{i}'):0 for i in range(1,5)} # server ip: connections count
+            for dpid in self.dpids:
+                if dpid in self.connections:
+                    self._request_flow_stats(self.connections[dpid])
+                else:
+                    log.debug("No connection for DPID %s", dpid_to_str(dpid))
+            # Wait for 3 seconds before next round
+            sleep(1)
+
+    def _handle_FlowStatsReceived(self, event):
+        log.info("ENTER: " + inspect.currentframe().f_code.co_name)
+        # Process flow stats reply
+        #log.debug("Received flow stats from %s", dpid_to_str(event.connection.dpid))
+        for flow in event.stats:
+            # Check if flow has IP addresses
+            if flow.match.nw_src and flow.match.nw_dst in self.server_pool.keys():
+                # Convert IP addresses to strings
+                self.server_pool[flow.match.nw_dst] += 1
+
+            
+
+    def get_flows(self):
+        """Return the collected flow tuples"""
+        return self.flows
+
+    def stop(self):
+        """Stop the stats collection thread"""
+        self.running = False
+        self.stats_thread.join()
+
+    def _ip_to_mac(self, ip):
+        return EthAddr(MAC_ZERO + ip.toStr()[-1])
 
 def launch():
     """
     Launch the Least Connection Load Balancer.
     """
     core.registerNew(LeastConnectionLB)
-    #core.registerNew(LBEvents, "LBEvents")
