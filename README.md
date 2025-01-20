@@ -4,7 +4,10 @@ Projekt polega na zbudowaniu load balancera opartego na algorytmie least conecti
 
 ## Topologia ##
 
-![image](https://github.com/user-attachments/assets/33037be5-403d-4ee2-99c2-26622a282448)
+![image](https://github.com/user-attachments/assets/7ed83267-4321-4976-9ba1-9c31f57abedd)
+
+
 
 ## Algorytm sterownika ##
-![image](https://github.com/user-attachments/assets/019904f8-2bb8-46a5-8289-ec3a2c3b8bc6)
+![image](https://github.com/user-attachments/assets/08491389-cd2b-4586-8a9b-ea01e602bda7)
+
