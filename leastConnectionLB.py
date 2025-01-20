@@ -7,12 +7,18 @@ from pox.lib.util import str_to_dpid, dpid_to_str
 from pox.lib.revent import Event, EventMixin
 from time import sleep
 import threading
+import warnings
 import inspect
 
 log = core.getLogger()
 
 ZERO_DPID = "00-00-00-00-00-0"
 MAC_ZERO = "00:00:00:00:00:0"
+
+IDLE_TIMEOUT = 2
+HARD_TIMEOUT = 5
+
+REQUEST_FOR_STATS_INTERVAL = 1
 
 class RequestPathEvent(Event):
         def __init__(self, dpid1, dpid2):
@@ -21,12 +27,14 @@ class RequestPathEvent(Event):
 
 class LeastConnectionLB(EventMixin):
     _eventMixin_events = set([RequestPathEvent])  # Register events
-    
+    warnings.filterwarnings('ignore')
+
     def __init__(self):
         # Initialize EventMixin first
         EventMixin.__init__(self)
-        #log.info("Starting Least Connection Load Balancer")
+
         self._core_name = 'misc_lclb'
+
         # Server pool configuration
         self.server_pool = {IPAddr(f'10.0.0.{i}'):0 for i in range(1,5)} # server ip: connections count
         self.server_pool_tmp = {IPAddr(f'10.0.0.{i}'):0 for i in range(1,5)}
@@ -34,11 +42,9 @@ class LeastConnectionLB(EventMixin):
         # Virtual service configuration
         self.virtual_ip = IPAddr('10.0.0.100')
         self.virtual_mac = EthAddr('0a:00:00:64:00:00')
-        self.installed_paths = list()
         # Connection tracking
         self.connection_counts = defaultdict(int)  # Active connections per server
-        self.paths = {}  # Store computed paths
-        self.pass_or_not = True
+        self.paths = dict()  # Store computed paths
         # Network topology mapping
         self.host_port_map = {
             IPAddr("10.0.0.1"): (str_to_dpid(ZERO_DPID+"1"), 3),
@@ -76,9 +82,7 @@ class LeastConnectionLB(EventMixin):
         core.openflow.addListeners(self)
         self.flows = {IPAddr(f'10.0.0.{i}'):list() for i in range(1,5)}
         # Hardcoded DPIDs (example values - replace with your actual DPIDs)
-        self.dpids = [1, 2, 3, 4]  # DPIDs as integers
-        # Dictionary to store connections
-        self.connections = {}
+        self.dpids = [1, 3]  # DPIDs as integers
         # Start the stats collection thread
         self.running = True
         self.stats_thread = threading.Thread(target=self._stats_loop)
@@ -142,6 +146,7 @@ class LeastConnectionLB(EventMixin):
         if not packet:
             return
 
+        # handle ARP packets
         if packet.type == ethernet.ARP_TYPE:
             arp_packet = packet.payload
             
@@ -196,28 +201,19 @@ class LeastConnectionLB(EventMixin):
         # Process only IPv4 traffic
         if packet.type == ethernet.IP_TYPE :
             ip_packet = packet.find('ipv4')
-            #tcp_packet = packet.find('udp')
             if ip_packet:
                 # Handle traffic directed to the virtual IP
-                
-                #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
-                #log.info(event.connection)
-                #log.info(ip_packet)
-                if ip_packet.dstip == IPAddr('10.0.0.100'):
+                if ip_packet.dstip == self.virtual_ip:
+                    # when packet in comes from the client site
                     selected_server = self._select_server()
                     
-                    #print(selected_server)
                     if selected_server:
-                        #print("1")
                         self._redirect_to_server(event, ip_packet, selected_server)
                 else:
-                    #print("2")
+                    # when packet in comes from the servers sites
                     self._redirect_to_client(event, ip_packet)
                 return
 
-
-        # Flood other packets
-        #self._flood(event)
         return
 
     def _select_server(self):
@@ -225,8 +221,6 @@ class LeastConnectionLB(EventMixin):
         """
         Select the backend server with the least active connections.
         """
-        #print("server pool")
-        #print(self.server_pool)
         return min(self.server_pool, key=self.server_pool.get)
 
     def _redirect_to_server(self, event, ip_packet, server):
@@ -243,25 +237,15 @@ class LeastConnectionLB(EventMixin):
         #print("redirected: ")
         #print(server)
 
-        # Rewrite destination IP/MAC to server's IP/MAC
-        # ip_packet.dstip = server['ip']
-        # packet.dst = server['mac']
-
         dpid_client = self.host_port_map[ip_packet.srcip][0]
         dpid_server = self.host_port_map[server][0]
 
         self._request_Path(dpid1=dpid_client, dpid2=dpid_server)
-        #log.info("request path sent")
 
         while self.tmpPath is None:
             pass
-        
 
-        # if (ip_packet.srcip, server["ip"]) in self.installed_paths:
-        #     return
-        # else:
-        #     self.installed_paths.append((ip_packet.srcip, server["ip"]))
-
+        # create flow mod for the path
         self.tmpPath.reverse()
         for i, dpid in enumerate(self.tmpPath):
             connection = self.get_switch_connection(str_to_dpid(ZERO_DPID + f"{dpid}"))
@@ -291,7 +275,6 @@ class LeastConnectionLB(EventMixin):
         """
         Redirect traffic from backend servers to the client.
         """
-        #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
         packet = event.parsed
         connection_og = event.connection
 
@@ -303,7 +286,8 @@ class LeastConnectionLB(EventMixin):
 
         while self.tmpPath is None:
             pass
-
+        
+        # create flow mod for the path
         self.tmpPath.reverse()
         for i, dpid in enumerate(self.tmpPath):
             connection = self.get_switch_connection(str_to_dpid(ZERO_DPID + f"{dpid}"))
@@ -321,16 +305,13 @@ class LeastConnectionLB(EventMixin):
                 port_client = self.host_port_map[ip_packet.dstip][1]
                 self._install_flow_with_change(connection, port_client, packet.dst, ip_packet.dstip, packet, True)
                 #log.info(f"Install flow in {dpid}:{port_client}")
-                
+    
             else:
                 port_client = self.paths[dpid][self.tmpPath[i-1]]
                 self._install_flow(connection, port_client, packet.dst, ip_packet.dstip, packet)
                 #log.info(f"Install flow in {dpid}:{port_client}")
-                
-                
+    
         self.tmpPath = None
-
-
 
     def _install_flow(self, connection, out_port, dst_mac, dst_ip, packet, src_ip=None, src_mac=None):
         #log.debug("ENTER: " + inspect.currentframe().f_code.co_name)
@@ -339,8 +320,8 @@ class LeastConnectionLB(EventMixin):
         msg.match.dl_dst = dst_mac
         msg.match.nw_dst = dst_ip
         msg.match.nw_proto = None
-        msg.idle_timeout = 2
-        msg.hard_timeout = 5
+        msg.idle_timeout = IDLE_TIMEOUT
+        msg.hard_timeout = HARD_TIMEOUT
         #log.info(f"dst: {msg.match.nw_dst} src: {msg.match.nw_src}")
         if not src_ip and src_mac:
             msg.match.dl_src = src_mac
@@ -369,8 +350,8 @@ class LeastConnectionLB(EventMixin):
             msg.actions.append(of.ofp_action_nw_addr.set_dst(dst_ip))
         msg.actions.append(of.ofp_action_output(port=out_port))
         msg.match.nw_proto = None
-        msg.idle_timeout = 2
-        msg.hard_timeout = 5
+        msg.idle_timeout = IDLE_TIMEOUT
+        msg.hard_timeout = HARD_TIMEOUT
         #log.info(f"dst: {msg.match.nw_dst} src: {msg.match.nw_src}")
         connection.send(msg)
 
@@ -405,10 +386,10 @@ class LeastConnectionLB(EventMixin):
                 else:
                     log.debug("No connection for DPID %s", dpid_to_str(dpid))
             # Wait for 3 seconds before next round
-            sleep(1)
+            sleep(REQUEST_FOR_STATS_INTERVAL)
 
     def _handle_FlowStatsReceived(self, event):
-        log.info("ENTER: " + inspect.currentframe().f_code.co_name)
+        #log.info("ENTER: " + inspect.currentframe().f_code.co_name)
         # Process flow stats reply
         #log.debug("Received flow stats from %s", dpid_to_str(event.connection.dpid))
         for flow in event.stats:
