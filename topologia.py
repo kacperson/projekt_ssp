@@ -13,8 +13,8 @@ import threading
 NUMBER_OF_SWITCHES = 6
 NUMBER_OF_HOSTS = 8
 
-MIN_DURATION = 3
-MAX_DURATION = 10
+MIN_DURATION = 2
+MAX_DURATION = 5
 
 MIN_BURST = 10
 MAX_BURST = 1000
@@ -32,19 +32,20 @@ class CustomMininetTopo(Topo):
         switchesNames = [f"s{num+1}" for num in range(NUMBER_OF_SWITCHES)]
         hostNames = [f"h{num+1}" for num in range(NUMBER_OF_HOSTS)]
 
-        hosts = [self.addHost(hName, mac=f'00:00:00:0{hName[1]}:0{hName[1]}:0{hName[1]}')\
+        hosts = [self.addHost(hName, mac=f'00:00:00:00:00:0{hName[1]}')\
                 for hName in hostNames]
         switches = [self.addSwitch(name) for name in switchesNames]
         switch = lambda name: switches[switchesNames.index(name)]
         host = lambda name: hosts[hostNames.index(name)]
 
-        
         self.addLink(switch("s1"), switch("s2"), port1=1, port2=1, bw=2)
         self.addLink(switch("s2"), switch("s3"), port1=2, port2=2, bw=2)
         self.addLink(switch("s3"), switch("s4"), port1=1, port2=1, bw=2)
         self.addLink(switch("s4"), switch("s1"), port1=2, port2=2, bw=2)
         self.addLink(switch("s5"), switch("s2"), port1=1 ,port2=3, bw=2)
         self.addLink(switch("s6"), switch("s4"), port1=1 ,port2=3, bw=2)
+        self.addLink(switch("s1"), switch("s3"), port1=5 ,port2=5, bw=2)
+        self.addLink(switch("s2"), switch("s4"), port1=4 ,port2=4, bw=2)
   
         self.addLink(switch("s1"), host("h1"), port1=3 ,port2=1, bw=2)
         self.addLink(switch("s1"), host("h2"), port1=4 ,port2=1, bw=2)
@@ -54,6 +55,7 @@ class CustomMininetTopo(Topo):
         self.addLink(switch("s5"), host("h6"), port1=3 ,port2=1, bw=2)
         self.addLink(switch("s6"), host("h7"), port1=2 ,port2=1, bw=2)
         self.addLink(switch("s6"), host("h8"), port1=3 ,port2=1, bw=2)
+        
         
 
 
@@ -67,13 +69,13 @@ def networkSetup():
                     autoStaticArp = False,
                     xterms=False,
                     host=CPULimitedHost, link=TCLink)
+    print("dupa")
     
     for sw in net.switches:
         sw.cmd("sysctl -w net.ipv6.conf.all.disable_ipv6=1")
         sw.cmd("sysctl -w net.ipv6.conf.default.disable_ipv6=1")
         sw.cmd("sysctl -w net.ipv6.conf.lo.disable_ipv6=1")
         
-    
     for switch in net.switches:
         switch_nr = int(switch.name.replace('s', ''))  # Extract switch number from name
         for port in switch.intfList():
@@ -85,9 +87,9 @@ def networkSetup():
     
     net.start()
     dumpNodeConnections(net.hosts)
-    net.pingAll()
+
     generate_random_traffic(net)
-    CLI()
+    CLI(net)
 
     net.stop()
 
@@ -96,8 +98,8 @@ def run_iperf_servers(net):
     for i in range(1, 5):
         for j in range (1, 10):
             host = net.get(f'h{i}')
-            host.cmd(f'iperf3 -s -i 1 -p {i}00{j} &')
-        print(f'Iperf server started on h{i}')
+            host.cmd(f'iperf3 -s -i 1 -p 100{j} &')
+        print(f'Iperf3 server started on h{i}')
 
 def run_iperf_client(client, server):
     """Run Iperf clients on hosts 5 to 8"""
@@ -106,8 +108,8 @@ def run_iperf_client(client, server):
     interval = random.uniform(MIN_INTERVAL, MAX_INTERVAL)
     port_nr = random.randint(1, NUMBER_OF_SERVERS)
     timestamp = time_ns()
-    print(f'iperf3 -c {server.IP()} -t {duration} -b {burst_size}K -i {interval} -p {server.name[1]}00{port_nr} -u --logfile iperf_{client.name}_to_{server.name}_{timestamp}.log &')
-    client.cmd(f'iperf3 -c {server.IP()} -t {duration} -b {burst_size}K -i {interval} -p {server.name[1]}00{port_nr} -u --logfile iperf_{client.name}_to_{server.name}_{timestamp}.log &')
+    print(f'iperf3 -c 10.0.0.100 -t {duration} -b {burst_size}K -i {interval} -p 100{port_nr} --logfile iperf_{client.name}_to_{server.name}_{timestamp}.log &')
+    client.cmd(f'iperf3 -c 10.0.0.100 -t {duration} -b {burst_size}K -i {interval} -p 100{port_nr} --logfile iperf_{client.name}_to_{server.name}_{timestamp}.log &')
 
 def generate_random_traffic(net):
 
