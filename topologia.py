@@ -14,7 +14,7 @@ NUMBER_OF_SWITCHES = 6
 NUMBER_OF_HOSTS = 8
 
 MIN_DURATION = 2
-MAX_DURATION = 5
+MAX_DURATION = 10
 
 MIN_BURST = 10
 MAX_BURST = 1000
@@ -23,6 +23,8 @@ MIN_INTERVAL = 0.1
 MAX_INTERVAL = 1.0
 
 NUMBER_OF_SERVERS = 9
+
+GENERATION_INTERVAL = 2
 
 class CustomMininetTopo(Topo):
     "Single switch connected to n hosts."
@@ -69,7 +71,6 @@ def networkSetup():
                     autoStaticArp = False,
                     xterms=False,
                     host=CPULimitedHost, link=TCLink)
-    print("dupa")
     
     for sw in net.switches:
         sw.cmd("sysctl -w net.ipv6.conf.all.disable_ipv6=1")
@@ -120,7 +121,7 @@ def generate_random_traffic(net):
         client = random.choice(src_hosts)
         server = random.choice(dst_hosts)
         run_iperf_client(client, server)
-        sleep(2)
+        sleep(GENERATION_INTERVAL)
 
 
 
