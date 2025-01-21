@@ -567,7 +567,6 @@ class DiscoveryGraph (EventMixin):
 
   def _handle_RequestPathEvent(self, event):
     path = NX.shortest_path(self.g, event.path_endpoints[0], event.path_endpoints[1])
-    print(path)
     self.raiseEvent(ResponsePathEvent(path))
 
   def _handle_openflow_discovery_LinkEvent (self, event):
