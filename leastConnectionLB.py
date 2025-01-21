@@ -8,6 +8,7 @@ from pox.lib.revent import Event, EventMixin
 from time import sleep
 import threading
 import logging
+import inspect
 
 
 log = core.getLogger()
@@ -15,9 +16,11 @@ log = core.getLogger()
 ZERO_DPID = "00-00-00-00-00-0"
 MAC_ZERO = "00:00:00:00:00:0"
 
+#flow entry timeouts
 IDLE_TIMEOUT = 2
 HARD_TIMEOUT = 5
 
+#interval between requesting from OVS'es connections stats 
 REQUEST_FOR_STATS_INTERVAL = 1
 
 class RequestPathEvent(Event):
@@ -56,7 +59,7 @@ class LeastConnectionLB(EventMixin):
             IPAddr("10.0.0.7"): (str_to_dpid(ZERO_DPID+"6"), 2),
             IPAddr("10.0.0.8"): (str_to_dpid(ZERO_DPID+"6"), 3)
         }
-        
+        self.stats_from = []
         # Set up event listeners
         core.openflow.addListeners(self)  # Listen to OpenFlow events
         core.listen_to_dependencies(self)  # Listen to dependency events
@@ -374,6 +377,7 @@ class LeastConnectionLB(EventMixin):
         """Thread function that periodically requests stats"""
         while self.running:
             print(self.server_pool)
+            self.stats_from = []
             self.server_pool= {IPAddr(f'10.0.0.{i}'):0 for i in range(1,5)} # server ip: connections count
             for dpid in self.dpids:
                 if dpid in self.connections:
@@ -384,12 +388,15 @@ class LeastConnectionLB(EventMixin):
             sleep(REQUEST_FOR_STATS_INTERVAL)
 
     def _handle_FlowStatsReceived(self, event):
-        #log.info("ENTER: " + inspect.currentframe().f_code.co_name)
-        #log.debug("Received flow stats from %s", dpid_to_str(event.connection.dpid))
+        # log.info("ENTER: " + inspect.currentframe().f_code.co_name)
+        # Process flow stats reply
+        #log.info("Received flow stats from %s", dpid_to_str(event.connection.dpid))
         for flow in event.stats:
             # Check if flow has IP addresses
-            if flow.match.nw_src and flow.match.nw_dst in self.server_pool.keys():
+            if flow.match.nw_src and flow.match.nw_dst in self.server_pool.keys() \
+            and event.connection.dpid not in self.stats_from:
                 # Convert IP addresses to strings
+                self.stats_from.append(event.connection.dpid)
                 self.server_pool[flow.match.nw_dst] += 1
 
             
