@@ -7,8 +7,8 @@ from pox.lib.util import str_to_dpid, dpid_to_str
 from pox.lib.revent import Event, EventMixin
 from time import sleep
 import threading
-import warnings
-import inspect
+import logging
+
 
 log = core.getLogger()
 
@@ -27,7 +27,7 @@ class RequestPathEvent(Event):
 
 class LeastConnectionLB(EventMixin):
     _eventMixin_events = set([RequestPathEvent])  # Register events
-    warnings.filterwarnings('ignore')
+    logging.getLogger("libopenflow_01").setLevel(logging.ERROR)
 
     def __init__(self):
         # Initialize EventMixin first
@@ -232,11 +232,6 @@ class LeastConnectionLB(EventMixin):
         packet = event.parsed
         connection_og = event.connection
 
-        #print("Original packet: ")
-        #print(ip_packet)
-        #print("redirected: ")
-        #print(server)
-
         dpid_client = self.host_port_map[ip_packet.srcip][0]
         dpid_server = self.host_port_map[server][0]
 
@@ -390,7 +385,6 @@ class LeastConnectionLB(EventMixin):
 
     def _handle_FlowStatsReceived(self, event):
         #log.info("ENTER: " + inspect.currentframe().f_code.co_name)
-        # Process flow stats reply
         #log.debug("Received flow stats from %s", dpid_to_str(event.connection.dpid))
         for flow in event.stats:
             # Check if flow has IP addresses
