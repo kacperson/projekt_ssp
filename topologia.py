@@ -69,7 +69,7 @@ def networkSetup():
     topo = CustomMininetTopo()
     net = Mininet(topo=topo,
                     switch=OVSKernelSwitch,
-                    controller=RemoteController(name='c0', ip='192.168.110.137', port=6633),
+                    controller=RemoteController(name='c0', ip='<controller_ip>', port=6633),
                     autoSetMacs = False,
                     autoStaticArp = False,
                     xterms=False,
