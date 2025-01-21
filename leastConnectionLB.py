@@ -396,7 +396,7 @@ class LeastConnectionLB(EventMixin):
             if flow.match.nw_src and flow.match.nw_dst in self.server_pool.keys() \
             and event.connection.dpid not in self.stats_from:
                 # Convert IP addresses to strings
-                self.stats_from.append(event.connection.dpid)
+                #self.stats_from.append(event.connection.dpid)
                 self.server_pool[flow.match.nw_dst] += 1
 
             
