@@ -46,6 +46,37 @@ W pliku `topologia.py` wpisujemy prawdziwy adres ip sterownika.
 ### 4. Testowanie sterownika ###
 Aby sprawdzić działanie sterwonika zalecane jest włączenie go przed uruchomieniem środowiska mininet:  
 `~/pox$ ./pox.py openflow.discovery host_tracker.host_tracker misc.leastConnectionLB openflow.spanning_tree`  
-Następnie włączamy skrypt z topologią:  
+Następnie w innym terminalu włączamy skrypt z topologią:  
 `~/mininet$ sudo python3 custom/topologia.py`  
 W folderze `mininet` powinny zacząć pojawiać się logi generowane przez program iperf3 generujący ruch sieciowy.
+W terminalu ze sterownikiem powinny pojawiać się logi, w których jest pokazane ile jest aktywnych połączeń do każdego z serwerów.  
+
+### 5. Opcje testowania ###
+W pliku `topologia.py` możemy zmieniać opcje generowania ruchu.  
+```
+#duration of packet stream
+MIN_DURATION = 2
+MAX_DURATION = 10
+
+#size of packet burst
+MIN_BURST = 10
+MAX_BURST = 1000
+
+#interval between packet bursts
+MIN_INTERVAL = 0.1
+MAX_INTERVAL = 1.0
+
+#interval between creating new packet stream
+GENERATION_INTERVAL = 2
+```
+
+W pliku `leasConnectionLB.py` znajdują się opcje które można zmieniać działanie sterownika:  
+```
+#flow entry timeouts
+IDLE_TIMEOUT = 2
+HARD_TIMEOUT = 5
+
+#interval between requesting from OVS'es connections stats 
+REQUEST_FOR_STATS_INTERVAL = 1
+```
+
