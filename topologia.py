@@ -1,30 +1,33 @@
 from mininet.topo import Topo
 from mininet.net import Mininet
-from mininet.node import CPULimitedHost, Controller, RemoteController, OVSSwitch, Ryu, OVSKernelSwitch
+from mininet.node import CPULimitedHost, RemoteController, OVSKernelSwitch
 from mininet.link import TCLink
 from mininet.util import dumpNodeConnections
 from mininet.log import setLogLevel
 from mininet.cli import CLI
-from functools import partial
 from time import sleep, time_ns
 import random
-import threading
 
 NUMBER_OF_SWITCHES = 6
 NUMBER_OF_HOSTS = 8
 
+#duration of packet stream
 MIN_DURATION = 2
 MAX_DURATION = 10
 
+#size of packet burst
 MIN_BURST = 10
 MAX_BURST = 1000
 
+#interval between packet bursts
 MIN_INTERVAL = 0.1
 MAX_INTERVAL = 1.0
 
+#interval between creating new packet stream
+GENERATION_INTERVAL = 2
+
 NUMBER_OF_SERVERS = 9
 
-GENERATION_INTERVAL = 2
 
 class CustomMininetTopo(Topo):
     "Single switch connected to n hosts."
@@ -71,6 +74,7 @@ def networkSetup():
                     autoStaticArp = False,
                     xterms=False,
                     host=CPULimitedHost, link=TCLink)
+
     
     for sw in net.switches:
         sw.cmd("sysctl -w net.ipv6.conf.all.disable_ipv6=1")
@@ -88,7 +92,9 @@ def networkSetup():
     
     net.start()
     dumpNodeConnections(net.hosts)
-
+    #net.pingAll()
+    #sleep(5)
+    # input()
     generate_random_traffic(net)
     CLI(net)
 
