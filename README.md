@@ -17,7 +17,9 @@ Zalecaną wersją linuxa do uruchomienia tego sterownika jest Ubuntu 20.04.14.
 
 ### 2. Sterownik POX ###
 Aby sterownik POX zadziałał należy pobrać poniższe repozytorium do katalogu domowego:  
-`git clone http://github.com/noxrepo/pox`  
+```
+~$ git clone http://github.com/noxrepo/pox
+``` 
 Następnie pobieramy 2 pliki z tego repozytorium: `leastConnectionLB.py` i `discovery.py`.  
 Plik `leastConnectionLB.py` kopiujemy do folderu `~/pox/pox/misc/`.  
 Plik `discovery.py` podmieniamy z plikiem `discovery.py` znajdującym się w `~/pox/pox/openflow/`  
@@ -26,11 +28,13 @@ Doinstalowujemy potrzebne biblioteki, domyślnie powinno to być tylko: `pip ins
 ### 3. Mininet ###
 Pobieramy środowisko mininet oraz instalujemy je:  
 ```
-git clone https://github.com/mininet/mininet
-mininet/util/install.sh -a
+~$ git clone https://github.com/mininet/mininet
+~$ mininet/util/install.sh -a
 ```
 Jeżeli nie mamy zainstalowego programu iperf3 też należy go zainstalować:  
-`sudo apt install iperf3`  
+```
+~$ sudo apt install iperf3`
+```
 Pobieramy plik `topologia.py` z tego repozytorium i umieszczamy w katalogu `~/mininet/custom/`.  
 W pliku `topologia.py` wpisujemy prawdziwy adres ip sterownika.
 ```
@@ -45,9 +49,13 @@ W pliku `topologia.py` wpisujemy prawdziwy adres ip sterownika.
 
 ### 4. Testowanie sterownika ###
 Aby sprawdzić działanie sterwonika zalecane jest włączenie go przed uruchomieniem środowiska mininet:  
-`~/pox$ ./pox.py openflow.discovery host_tracker.host_tracker misc.leastConnectionLB openflow.spanning_tree`  
+```
+~/pox$ ./pox.py openflow.discovery host_tracker.host_tracker misc.leastConnectionLB openflow.spanning_tree
+```
 Następnie w innym terminalu włączamy skrypt z topologią:  
-`~/mininet$ sudo python3 custom/topologia.py`  
+```
+~/mininet$ sudo python3 custom/topologia.py
+```
 W folderze `mininet` powinny zacząć pojawiać się logi generowane przez program iperf3 generujący ruch sieciowy.
 W terminalu ze sterownikiem powinny pojawiać się logi, w których jest pokazane ile jest aktywnych połączeń do każdego z serwerów.  
 
