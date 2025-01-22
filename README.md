@@ -1,6 +1,6 @@
 # Projekt SDN - Least Connection Load Balancer #
 
-Projekt polega na zbudowaniu load balancera opartego na algorytmie least conections czyli ruch kierowany jest do serwerów docelowych które mają najmniej połączeń.
+Projekt polega na zbudowaniu load balancera opartego na algorytmie least connections czyli ruch kierowany jest do serwerów docelowych które mają najmniej połączeń.
 
 ## Topologia ##
 
