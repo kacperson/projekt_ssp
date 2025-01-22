@@ -1,7 +1,19 @@
 # Projekt SDN - Least Connection Load Balancer #
 
-Projekt polega na zbudowaniu load balancera opartego na algorytmie least connections czyli ruch kierowany jest do serwerów docelowych które mają najmniej połączeń.
+Projekt polega na zbudowaniu load balancera opartego na algorytmie least connections, czyli ruch kierowany jest do serwerów docelowych które mają najmniej połączeń.  
+W zakres projektu wchodzi:  
+- odpytywanie przełączników **s1** i **s3** o aktywne połączenia
+- generowanie ruchu z klientów **h5/h6/h7/h8** na adres wirtualny **10.0.0.100** i kierowanie połączenia do wyznaczonego przez algorytm serwera **h1/h2/h3/h4**
+- podmienianie adresu docelowego wirtualnego **10.0.0.100** na adres docelowego serwera przez przełączniki **s5** i **s6**
 
+Projekt korzysta z gotowych modułów sterownika POX *discovery*, *spanning tree*, *host_tracker*. Moduł *discovery* jest wzbogacony o wysyłanie informacji o połączeniach między węzłami i portach na jakich są połączone oraz o wysyłanie ścieżki między węzłami jeżeli zostanie o to zapytany.
+Moduł *LeastConnectionLB* jest odpowiedzialny za obsługę sterownika sieci razem z algorytmem least connections.
+
+Narzędzia z jakich skorzystano to:
+- sterwonik POX
+- środowisko mininet
+- generator ruchu iperf3
+  
 ## Topologia ##
 
 ![image](https://github.com/user-attachments/assets/7ed83267-4321-4976-9ba1-9c31f57abedd)
